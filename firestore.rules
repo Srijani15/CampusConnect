@@ -1,0 +1,252 @@
+rules_version = '2';
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isInstitutionalUser() {
+      return isSignedIn() &&
+        request.auth.token.email is string &&
+        request.auth.token.email.matches('.*@bvrithyderabad\\.edu\\.in$');
+    }
+
+    function currentUserDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function isFacultyEmail() {
+      return isInstitutionalUser() &&
+        request.auth.token.email.matches('^[A-Za-z].*@bvrithyderabad\\.edu\\.in$');
+    }
+
+    function isStudentEmail() {
+      return isInstitutionalUser() &&
+        request.auth.token.email.matches('^[0-9].*@bvrithyderabad\\.edu\\.in$');
+    }
+
+    function isValidYear(value) {
+      return value == null || value in [1, 2, 3, 4];
+    }
+
+    function currentUserRole() {
+      return currentUserDoc().data.role;
+    }
+
+    function isFaculty() {
+      return isInstitutionalUser() &&
+        currentUserRole() == "faculty";
+    }
+
+    function isStudent() {
+      return isInstitutionalUser() &&
+        currentUserRole() == "student";
+    }
+
+    function isAdmin() {
+      return isInstitutionalUser() &&
+        currentUserDoc().data.role == "admin";
+    }
+
+    function isApprovedPoster() {
+      return isInstitutionalUser() &&
+        currentUserDoc().data.authorApproved == true;
+    }
+
+    function isValidBoard(boardId) {
+      return boardId in ["cse", "cse-aiml", "ece", "eee", "it"];
+    }
+
+    function isValidPostType(value) {
+      return value in ["notice", "event", "hackathon", "workshop", "announcement"];
+    }
+
+    function isValidPriority(value) {
+      return value in ["high", "medium", "low"];
+    }
+
+    function isValidVisibility(value) {
+      return value in ["pending", "published", "rejected"];
+    }
+
+    function isValidApprovalStatus(value) {
+      return value in ["pending", "approved", "rejected"];
+    }
+
+    function isValidLifecycleStatus(value) {
+      return value in ["active", "completed", "archived"];
+    }
+
+    match /users/{userId} {
+      allow read: if isInstitutionalUser() && request.auth.uid == userId;
+      allow create: if isInstitutionalUser()
+        && request.auth.uid == userId
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.email == request.auth.token.email
+        && isValidYear(request.resource.data.year)
+        && (
+          (
+            isFacultyEmail()
+            && request.resource.data.role == "faculty"
+            && request.resource.data.authorApproved == true
+            && request.resource.data.year == null
+          ) ||
+          (
+            isStudentEmail()
+            && request.resource.data.role == "student"
+            && request.resource.data.authorApproved == false
+          )
+        );
+      allow update: if isAdmin() || (
+        isInstitutionalUser()
+        && request.auth.uid == userId
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.email == request.auth.token.email
+        && isValidYear(request.resource.data.year)
+        && resource.data.role != "admin"
+        && (
+          (
+            isFacultyEmail()
+            && request.resource.data.role == "faculty"
+            && request.resource.data.authorApproved == true
+            && request.resource.data.year == null
+          ) ||
+          (
+            isStudentEmail()
+            && request.resource.data.role == "student"
+            && request.resource.data.authorApproved == resource.data.authorApproved
+          )
+        )
+      );
+      allow delete: if false;
+    }
+
+    match /boards/{boardId} {
+      allow read: if isInstitutionalUser();
+      allow write: if isAdmin();
+    }
+
+    match /notices/{noticeId} {
+      allow read: if isInstitutionalUser() &&
+        (
+          resource.data.approved == true ||
+          resource.data.authorUid == request.auth.uid ||
+          isAdmin()
+        );
+
+      allow create: if (isApprovedPoster() || isAdmin())
+        && request.resource.data.authorUid == request.auth.uid
+        && request.resource.data.approved == true
+        && isValidBoard(request.resource.data.boardId);
+
+      allow update, delete: if isAdmin() || (
+        isInstitutionalUser() &&
+        resource.data.authorUid == request.auth.uid
+      );
+    }
+
+    match /posts/{postId} {
+      allow read: if isInstitutionalUser() &&
+        (
+          resource.data.visibility == "published" ||
+          resource.data.authorUid == request.auth.uid ||
+          isFaculty() ||
+          isAdmin()
+        );
+
+      allow create: if isInstitutionalUser()
+        && request.resource.data.authorUid == request.auth.uid
+        && request.resource.data.authorEmail == request.auth.token.email
+        && isValidBoard(request.resource.data.boardId)
+        && isValidPostType(request.resource.data.type)
+        && isValidPriority(request.resource.data.priority)
+        && isValidVisibility(request.resource.data.visibility)
+        && isValidApprovalStatus(request.resource.data.approvalStatus)
+        && isValidLifecycleStatus(request.resource.data.lifecycleStatus)
+        && isValidYear(request.resource.data.year)
+        && (
+          (
+            isStudent()
+            && request.resource.data.visibility == "pending"
+            && request.resource.data.approvalStatus == "pending"
+          ) ||
+          (
+            (isFaculty() || isAdmin() || isApprovedPoster())
+            && request.resource.data.visibility == "published"
+            && request.resource.data.approvalStatus == "approved"
+          )
+        );
+
+      allow update: if isAdmin() || (
+        isInstitutionalUser()
+        && isFaculty()
+        && isValidVisibility(request.resource.data.visibility)
+        && isValidApprovalStatus(request.resource.data.approvalStatus)
+        && isValidLifecycleStatus(request.resource.data.lifecycleStatus)
+      ) || (
+        isInstitutionalUser()
+        && resource.data.authorUid == request.auth.uid
+        && isValidVisibility(request.resource.data.visibility)
+        && isValidApprovalStatus(request.resource.data.approvalStatus)
+        && isValidLifecycleStatus(request.resource.data.lifecycleStatus)
+        && (
+          resource.data.visibility == "pending" ||
+          isFaculty() ||
+          isApprovedPoster()
+        )
+      );
+
+      allow delete: if isAdmin() || (
+        isInstitutionalUser()
+        && resource.data.authorUid == request.auth.uid
+        && resource.data.visibility == "pending"
+      );
+    }
+
+    match /postReads/{readId} {
+      allow read: if isAdmin() || isFaculty() || (
+        isInstitutionalUser() &&
+        resource.data.viewerUid == request.auth.uid
+      );
+
+      allow create: if isInstitutionalUser()
+        && request.resource.data.viewerUid == request.auth.uid
+        && request.resource.data.viewerEmail == request.auth.token.email
+        && isValidBoard(request.resource.data.boardId)
+        && request.resource.data.postId is string;
+
+      allow update: if isInstitutionalUser()
+        && resource.data.viewerUid == request.auth.uid
+        && request.resource.data.viewerUid == request.auth.uid
+        && request.resource.data.viewerEmail == request.auth.token.email
+        && request.resource.data.postId == resource.data.postId
+        && request.resource.data.boardId == resource.data.boardId;
+      allow delete: if false;
+    }
+
+    match /auditLogs/{logId} {
+      allow read: if isAdmin() || isFaculty();
+      allow create: if isInstitutionalUser()
+        && request.resource.data.actorUid == request.auth.uid
+        && request.resource.data.actorEmail == request.auth.token.email;
+      allow update, delete: if false;
+    }
+
+    match /notificationTokens/{tokenId} {
+      allow read: if isAdmin() || (
+        isInstitutionalUser() &&
+        resource.data.uid == request.auth.uid
+      );
+      allow create: if isInstitutionalUser()
+        && request.resource.data.uid == request.auth.uid;
+      allow update: if isInstitutionalUser()
+        && resource.data.uid == request.auth.uid
+        && request.resource.data.uid == request.auth.uid;
+      allow delete: if isAdmin() || (
+        isInstitutionalUser() &&
+        resource.data.uid == request.auth.uid
+      );
+    }
+  }
+}

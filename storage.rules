@@ -1,0 +1,23 @@
+rules_version = '2';
+
+service firebase.storage {
+  match /b/{bucket}/o {
+    function isInstitutionalUser() {
+      return request.auth != null &&
+        request.auth.token.email is string &&
+        request.auth.token.email.matches('.*@bvrithyderabad\\.edu\\.in$');
+    }
+
+    match /posts/{userId}/{allPaths=**} {
+      allow read: if isInstitutionalUser();
+      allow write: if isInstitutionalUser()
+        && request.auth.uid == userId
+        && request.resource.size < 8 * 1024 * 1024
+        && request.resource.contentType.matches('image/.*');
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}
