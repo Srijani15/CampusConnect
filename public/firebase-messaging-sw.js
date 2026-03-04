@@ -2,24 +2,32 @@
 importScripts("https://www.gstatic.com/firebasejs/11.4.0/firebase-app-compat.js");
 importScripts("https://www.gstatic.com/firebasejs/11.4.0/firebase-messaging-compat.js");
 
-firebase.initializeApp({
-  apiKey: "AIzaSyA1mirE2AJWx5k58gCiauZ05VHf5aPg_7I",
-  authDomain: "campusconnect-55cca.firebaseapp.com",
-  projectId: "campusconnect-55cca",
-  storageBucket: "campusconnect-55cca.firebasestorage.app",
-  messagingSenderId: "882891881661",
-  appId: "1:882891881661:web:f1610cd134db1c50c54bd4",
-});
+const configParams = new URL(self.location.href).searchParams;
 
-const messaging = firebase.messaging();
+const firebaseConfig = {
+  apiKey: configParams.get("apiKey"),
+  authDomain: configParams.get("authDomain"),
+  projectId: configParams.get("projectId"),
+  storageBucket: configParams.get("storageBucket"),
+  messagingSenderId: configParams.get("messagingSenderId"),
+  appId: configParams.get("appId"),
+};
 
-messaging.onBackgroundMessage((payload) => {
-  const title = payload?.notification?.title || "CampusConnect";
-  const options = {
-    body: payload?.notification?.body || "New department update is available.",
-    icon: "/favicon.ico",
-    data: payload?.data || {},
-  };
+const hasMissingFirebaseConfig = Object.values(firebaseConfig).some((value) => !value);
 
-  self.registration.showNotification(title, options);
-});
+if (!hasMissingFirebaseConfig) {
+  firebase.initializeApp(firebaseConfig);
+
+  const messaging = firebase.messaging();
+
+  messaging.onBackgroundMessage((payload) => {
+    const title = payload?.notification?.title || "CampusConnect";
+    const options = {
+      body: payload?.notification?.body || "New department update is available.",
+      icon: "/favicon.ico",
+      data: payload?.data || {},
+    };
+
+    self.registration.showNotification(title, options);
+  });
+}

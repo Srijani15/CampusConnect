@@ -7,13 +7,13 @@ import { getMessaging, isSupported as isMessagingSupported } from "firebase/mess
 export const ALLOWED_DOMAIN = "bvrithyderabad.edu.in";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyA1mirE2AJWx5k58gCiauZ05VHf5aPg_7I",
-  authDomain: "campusconnect-55cca.firebaseapp.com",
-  projectId: "campusconnect-55cca",
-  storageBucket: "campusconnect-55cca.firebasestorage.app",
-  messagingSenderId: "882891881661",
-  appId: "1:882891881661:web:f1610cd134db1c50c54bd4",
-  measurementId: "G-97V72RBMDB",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
+  measurementId: import.meta.env.VITE_FIREBASE_MEASUREMENT_ID,
 };
 
 const app = initializeApp(firebaseConfig);

@@ -258,6 +258,22 @@ function getTokenDocId(uid, token) {
   return `${uid}_${safe || "token"}`;
 }
 
+function getMessagingServiceWorkerUrl() {
+  const params = new URLSearchParams({
+    apiKey: import.meta.env.VITE_FIREBASE_API_KEY || "",
+    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || "",
+    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || "",
+    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || "",
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || "",
+    appId: import.meta.env.VITE_FIREBASE_APP_ID || "",
+  });
+
+  const hasMissingValue = Array.from(params.values()).some((value) => !value);
+  if (hasMissingValue) return null;
+
+  return `/firebase-messaging-sw.js?${params.toString()}`;
+}
+
 export default function App() {
   const [view, setView] = useState(VIEW.WELCOME);
   const [status, setStatus] = useState("");
@@ -408,7 +424,10 @@ export default function App() {
       const messaging = await getMessagingIfSupported();
       if (!messaging) return;
 
-      const swRegistration = await navigator.serviceWorker.register("/firebase-messaging-sw.js");
+      const messagingSwUrl = getMessagingServiceWorkerUrl();
+      if (!messagingSwUrl) return;
+
+      const swRegistration = await navigator.serviceWorker.register(messagingSwUrl);
       const token = await getToken(messaging, {
         vapidKey,
         serviceWorkerRegistration: swRegistration,
