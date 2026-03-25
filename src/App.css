@@ -979,7 +979,11 @@ button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 }
 .post-card.clickable:hover::before { background: var(--blue); }
 .post-card.clickable:focus-visible  { outline: 2px solid var(--blue); outline-offset: 2px; }
-.post-card p { white-space: pre-wrap; }
+.post-card p {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 .post-card.compact { margin: 0; }
 
 .post-link-row { margin: 6px 0 0; }
@@ -987,6 +991,7 @@ button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
   color: var(--blue);
   font-weight: 600;
   text-decoration: underline;
+  overflow-wrap: anywhere;
   word-break: break-word;
 }
 .post-link:hover { text-decoration-thickness: 2px; }
@@ -1247,9 +1252,16 @@ button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
 .post-view-media {
   background: linear-gradient(150deg, #050d1c 0%, #0b1a32 100%);
-  display: grid; place-items: center; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  overflow: hidden; padding: 16px;
 }
-.post-view-media img { width: 100%; height: 100%; object-fit: cover; }
+.post-view-media img {
+  max-width: 100%;
+  max-height: 100%;
+  width: auto;
+  height: auto;
+  object-fit: contain;
+}
 
 .post-view-placeholder {
   color: rgba(170,205,255,0.7); text-align: center; padding: 30px;
@@ -1275,7 +1287,14 @@ button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
 
 .post-view-scroll { display: flex; flex-direction: column; gap: 12px; overflow-y: auto; padding-right: 4px; }
 .post-view-scroll h3 { font-size: 1.2rem; font-weight: 800; letter-spacing: -0.02em; }
-.post-view-content { color: var(--t2); line-height: 1.72; white-space: pre-wrap; font-size: 0.9rem; }
+.post-view-content {
+  color: var(--t2);
+  line-height: 1.72;
+  white-space: pre-wrap;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
 
 .post-view-footer {
   border-top: 1px solid var(--border); padding-top: 12px;
@@ -1389,8 +1408,8 @@ button:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
     border-radius: 0;
   }
   .post-view-media {
-    min-height: 160px;
-    height: clamp(160px, 34vh, 280px);
+    min-height: 180px;
+    max-height: 50vh;
   }
   .post-view-body { padding: 18px; }
   .post-view-header { flex-wrap: wrap; }

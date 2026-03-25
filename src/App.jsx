@@ -281,7 +281,11 @@ function formatDateLabel(date) {
 
 function getDateKey(date) {
   if (!date || Number.isNaN(date.getTime())) return "";
-  return date.toISOString().slice(0, 10);
+  const pad = (input) => String(input).padStart(2, "0");
+  const year = date.getFullYear();
+  const month = pad(date.getMonth() + 1);
+  const day = pad(date.getDate());
+  return `${year}-${month}-${day}`;
 }
 
 function getInitials(value) {
