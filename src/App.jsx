@@ -108,8 +108,80 @@ const PRIORITY_RANK = {
   low: 3,
 };
 
-const POST_TYPES = ["notice", "event", "hackathon", "workshop", "announcement"];
+const POST_TYPES = ["notice", "event", "hackathon", "workshop", "announcement", "achievement"];
 const PRIORITY_OPTIONS = ["high", "medium", "low"];
+const PRIORITY_TYPES = new Set(["notice", "hackathon", "workshop"]);
+const STATUS_TAB_TYPES = new Set(["notice", "event", "hackathon", "workshop"]);
+const POST_TYPE_DETAILS = {
+  notice: {
+    label: "Notices",
+    description: "Circulars, alerts, and quick updates.",
+    accent: "#0ea5e9",
+    tint: "rgba(14,165,233,0.16)",
+  },
+  event: {
+    label: "Events",
+    description: "Talks, meets, and campus activities.",
+    accent: "#22c55e",
+    tint: "rgba(34,197,94,0.16)",
+  },
+  hackathon: {
+    label: "Hackathons",
+    description: "Build, pitch, and compete together.",
+    accent: "#f97316",
+    tint: "rgba(249,115,22,0.16)",
+  },
+  workshop: {
+    label: "Workshops",
+    description: "Hands-on learning sessions.",
+    accent: "#8b5cf6",
+    tint: "rgba(139,92,246,0.16)",
+  },
+  announcement: {
+    label: "Announcements",
+    description: "Campus-wide highlights and news.",
+    accent: "#6366f1",
+    tint: "rgba(99,102,241,0.16)",
+  },
+  achievement: {
+    label: "Achievements",
+    description: "Wins, awards, and milestones.",
+    accent: "#f59e0b",
+    tint: "rgba(245,158,11,0.16)",
+  },
+};
+const POST_TYPE_TILES = [
+  {
+    id: "all",
+    label: "All Posts",
+    description: "Everything in one clean view.",
+    accent: "#3b82f6",
+    tint: "rgba(59,130,246,0.16)",
+  },
+  ...POST_TYPES.map((type) => ({
+    id: type,
+    ...(POST_TYPE_DETAILS[type] || {
+      label: type,
+      description: "Latest updates from campus.",
+      accent: "#3b82f6",
+      tint: "rgba(59,130,246,0.16)",
+    }),
+  })),
+];
+const PRIORITY_FILTERS = [
+  { id: "all", label: "All Priority" },
+  ...PRIORITY_OPTIONS.map((priority) => ({
+    id: priority,
+    label: priority.charAt(0).toUpperCase() + priority.slice(1),
+  })),
+];
+const YEAR_FILTERS = [
+  { id: "all", label: "All Years" },
+  { id: "1", label: "1st Year" },
+  { id: "2", label: "2nd Year" },
+  { id: "3", label: "3rd Year" },
+  { id: "4", label: "4th Year" },
+];
 const MAX_UPLOAD_BYTES = 7 * 1024 * 1024;
 const UPLOAD_IDLE_TIMEOUT_MS = 90000;
 const UPLOAD_MAX_TIMEOUT_MS = 300000;
@@ -467,6 +539,19 @@ function getPostTimestampMs(post) {
   return date.getTime();
 }
 
+function getDateValueMs(value) {
+  if (!value) return null;
+  if (typeof value?.toMillis === "function") return value.toMillis();
+  if (typeof value?.toDate === "function") {
+    const date = value.toDate();
+    if (Number.isNaN(date.getTime())) return null;
+    return date.getTime();
+  }
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed.getTime();
+}
+
 function getLegacyGroupKey(post) {
   const author = post?.authorUid || "author";
   const title = String(post?.title || "").trim().toLowerCase();
@@ -691,7 +776,7 @@ export default function App() {
   const [submittingPost, setSubmittingPost] = useState(false);
   const [approvingPostId, setApprovingPostId] = useState("");
   const [composeOpen, setComposeOpen] = useState(false);
-  const [composeFile, setComposeFile] = useState(null);
+  const [composeFiles, setComposeFiles] = useState([]);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [pushRegistered, setPushRegistered] = useState(false);
   const [searchTerm, setSearchTerm] = useState("");
@@ -700,6 +785,7 @@ export default function App() {
   const [filterYear, setFilterYear] = useState("all");
   const [readStatsByPost, setReadStatsByPost] = useState({});
   const [activePost, setActivePost] = useState(null);
+  const [activePostImageIndex, setActivePostImageIndex] = useState(0);
   const [starredPosts, setStarredPosts] = useState([]);
   const [reminders, setReminders] = useState([]);
   const [cleanupBusy, setCleanupBusy] = useState(false);
@@ -731,6 +817,8 @@ export default function App() {
   const [isRightPanelOpen, setIsRightPanelOpen] = useState(true);
   const [mobileNavOpen, setMobileNavOpen] = useState(false);
   const [mobileSearchOpen, setMobileSearchOpen] = useState(false);
+  const [profilePhotoUploading, setProfilePhotoUploading] = useState(false);
+  const [profilePhotoProgress, setProfilePhotoProgress] = useState(0);
   const [calendarCursor, setCalendarCursor] = useState(() => new Date());
   const [calendarSelectedDate, setCalendarSelectedDate] = useState(null);
   const [authoredPosts, setAuthoredPosts] = useState([]);
@@ -797,6 +885,10 @@ export default function App() {
     const displayName = userProfile?.name || "Srijani Manneni";
     return displayName;
   }, [userProfile]);
+  const profilePhotoUrl = useMemo(
+    () => userProfile?.photoUrl || authUser?.photoURL || "",
+    [userProfile?.photoUrl, authUser?.photoURL]
+  );
 
   const pageTitle = useMemo(() => {
     switch (dashboardPage) {
@@ -888,9 +980,10 @@ export default function App() {
   const showDepartmentFeed =
     dashboardPage === DASHBOARD_PAGE.DEPARTMENT ||
     (dashboardPage === DASHBOARD_PAGE.HOME && isStudent && studentBoardId);
-  const activePostMediaUrl = activePost ? getPostMediaUrl(activePost) : "";
   const activePostPriority = activePost?.priority || "medium";
   const activePostType = activePost?.type || "notice";
+  const activePostHasPriority = PRIORITY_TYPES.has(activePostType);
+  const editPostHasPriority = PRIORITY_TYPES.has(editPost?.type);
   const activePostAuthor = activePost?.authorName || activePost?.authorEmail || "CampusConnect";
   const activePostDepartment = useMemo(() => {
     if (!activePost) return "";
@@ -938,7 +1031,7 @@ export default function App() {
       targetMode: "specific",
       targetBoardId: selectedBoardId,
     });
-    setComposeFile(null);
+    setComposeFiles([]);
     setUploadProgress(0);
   }
 
@@ -1013,10 +1106,12 @@ export default function App() {
 
   function openPostPreview(post) {
     setActivePost(post);
+    setActivePostImageIndex(0);
   }
 
   function closePostPreview() {
     setActivePost(null);
+    setActivePostImageIndex(0);
   }
 
   function openReminder(post) {
@@ -1229,14 +1324,25 @@ export default function App() {
     }
   }
 
-  function applyFilters(list) {
-    const keyword = searchTerm.toLowerCase().trim();
-    const selectedYear = filterYear === "all" ? null : Number(filterYear);
+  function applyFilters(list, overrides = {}) {
+    const {
+      term = searchTerm,
+      type = filterType,
+      priority = filterPriority,
+      year = filterYear,
+      authorUid = selectedAuthorUid,
+    } = overrides;
+    const keyword = String(term || "").toLowerCase().trim();
+    const selectedYear = year === "all" ? null : Number(year);
 
     return list.filter((post) => {
-      if (selectedAuthorUid && post.authorUid !== selectedAuthorUid) return false;
-      if (filterType !== "all" && post.type !== filterType) return false;
-      if (filterPriority !== "all" && post.priority !== filterPriority) return false;
+      if (authorUid && post.authorUid !== authorUid) return false;
+      if (type !== "all" && post.type !== type) return false;
+      if (priority !== "all") {
+        const hasPriority = PRIORITY_TYPES.has(post.type);
+        if (!hasPriority) return false;
+        if (post.priority !== priority) return false;
+      }
       if (selectedYear && !isVisibleForYear(post, selectedYear)) return false;
 
       if (!keyword) return true;
@@ -1269,6 +1375,79 @@ export default function App() {
     filterYear,
     selectedAuthorUid,
   ]);
+  const showCompletedTab = filterType === "all" || STATUS_TAB_TYPES.has(filterType);
+  const showPriorityFilters = filterType === "all" || PRIORITY_TYPES.has(filterType);
+  const combinedFilteredPosts = useMemo(() => {
+    const merged = [...posts, ...completedPosts];
+    const unique = new Map();
+    merged.forEach((post) => unique.set(post.id, post));
+    const combined = Array.from(unique.values());
+    combined.sort((a, b) => (getPostTimestampMs(b) ?? 0) - (getPostTimestampMs(a) ?? 0));
+    return applyFilters(combined);
+  }, [posts, completedPosts, searchTerm, filterType, filterPriority, filterYear, selectedAuthorUid]);
+  const activeTabPosts = useMemo(() => {
+    if (activeTab === FEED_TAB.COMPLETED) return completedPosts;
+    if (activeTab === FEED_TAB.PENDING) return pendingPosts;
+    return posts;
+  }, [activeTab, posts, completedPosts, pendingPosts]);
+  const baseCountPosts = useMemo(() => {
+    const source = showCompletedTab ? activeTabPosts : [...posts, ...completedPosts];
+    const unique = new Map();
+    source.forEach((post) => unique.set(post.id, post));
+    return Array.from(unique.values());
+  }, [showCompletedTab, activeTabPosts, posts, completedPosts]);
+  const feedPostsToRender = showCompletedTab ? filteredFeedPosts : combinedFilteredPosts;
+  const feedEmptyLabel = showCompletedTab ? "No active posts found." : "No posts found.";
+  const typeCounts = useMemo(() => {
+    const baseFiltered = applyFilters(baseCountPosts, { type: "all" });
+    const counts = { all: baseFiltered.length };
+    POST_TYPES.forEach((type) => {
+      counts[type] = baseFiltered.filter((post) => post.type === type).length;
+    });
+    return counts;
+  }, [baseCountPosts, searchTerm, filterPriority, filterYear, selectedAuthorUid]);
+  const selectedAuthorMeta = useMemo(() => {
+    if (!selectedAuthor) return null;
+    const name = selectedAuthor.name || selectedAuthor.email || "Approved poster";
+    const email = selectedAuthor.email || "";
+    const role = selectedAuthor.role || "faculty";
+    const department = selectedAuthor.department || "Department";
+    const photoUrl = selectedAuthor.photoUrl || "";
+    const accent = role === "admin" ? "#ef4444" : "#3b82f6";
+    return { name, email, role, department, accent, photoUrl };
+  }, [selectedAuthor]);
+  const selectedAuthorStats = useMemo(() => {
+    if (!selectedAuthorUid) return null;
+    const countPosts = (items) =>
+      items.filter((post) => post.authorUid === selectedAuthorUid).length;
+    const activeCount = countPosts(posts);
+    const completedCount = countPosts(completedPosts);
+    const pendingCount = countPosts(pendingPosts);
+    return {
+      total: activeCount + completedCount + pendingCount,
+      active: activeCount,
+      completed: completedCount,
+      pending: pendingCount,
+    };
+  }, [selectedAuthorUid, posts, completedPosts, pendingPosts]);
+  const activeTabLabel =
+    activeTab === FEED_TAB.FEED
+      ? "Active"
+      : activeTab === FEED_TAB.COMPLETED
+        ? "Completed"
+        : "Pending";
+
+  useEffect(() => {
+    if (!showCompletedTab && activeTab === FEED_TAB.COMPLETED) {
+      setActiveTab(FEED_TAB.FEED);
+    }
+  }, [showCompletedTab, activeTab]);
+
+  useEffect(() => {
+    if (!showPriorityFilters && filterPriority !== "all") {
+      setFilterPriority("all");
+    }
+  }, [showPriorityFilters, filterPriority]);
 
   async function writeAuditLog(action, targetId, boardId, metadata = {}) {
     if (!authUser) return;
@@ -1359,6 +1538,7 @@ export default function App() {
         uid: user.uid,
         name: user.displayName || "",
         email: user.email || "",
+        photoUrl: user.photoURL || "",
         role: inferredIdentity.role,
         department: inferredIdentity.department ?? "",
         year: inferredIdentity.year,
@@ -1405,6 +1585,7 @@ export default function App() {
       uid: user.uid,
       name: user.displayName || existing.name || "",
       email: user.email || existing.email || "",
+      photoUrl: existing.photoUrl || user.photoURL || "",
       role: nextRole,
       year: nextYear,
       department: nextDepartment,
@@ -1588,6 +1769,41 @@ export default function App() {
     await purgeOldCompletedPosts(boardId, { silentErrors: true });
   }
 
+  async function completeExpiredFromFeed(items, boardId) {
+    if (!Array.isArray(items) || items.length === 0) return [];
+    const nowMs = Date.now();
+    const completedItems = [];
+
+    for (const item of items) {
+      if (!item || item.visibility !== "published" || item.lifecycleStatus !== "active") {
+        continue;
+      }
+      const deadlineMs = getDateValueMs(item.deadlineAt);
+      const eventMs = getDateValueMs(item.eventAt);
+      const deadlineExpired = Number.isFinite(deadlineMs) && deadlineMs > 0 && deadlineMs <= nowMs;
+      const eventExpired = Number.isFinite(eventMs) && eventMs > 0 && eventMs <= nowMs;
+      if (!deadlineExpired && !eventExpired) continue;
+
+      try {
+        await updateDoc(doc(db, "posts", item.id), {
+          lifecycleStatus: "completed",
+          completedAt: serverTimestamp(),
+          updatedAt: serverTimestamp(),
+        });
+        await writeAuditLog("mark_completed", item.id, boardId, { automated: true });
+        completedItems.push({
+          ...item,
+          lifecycleStatus: "completed",
+          completedAt: new Date(nowMs),
+        });
+      } catch (error) {
+        // Ignore failures (likely permissions or index errors).
+      }
+    }
+
+    return completedItems;
+  }
+
   async function loadDepartmentData(boardId, profile, user, options = {}) {
     const silentErrors = options.silentErrors === true;
     setPostsLoading(true);
@@ -1652,19 +1868,43 @@ export default function App() {
         pendingQuery ? getDocs(pendingQuery) : Promise.resolve(null),
       ]);
 
-      const nextFeedPosts = feedSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
-      const nextCompletedPosts = completedSnapshot.docs
+      let nextFeedPosts = feedSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }));
+      let nextCompletedPosts = completedSnapshot.docs
         .map((item) => ({ id: item.id, ...item.data() }))
         .filter((item) => item.visibility === "published");
       const nextPendingPosts = pendingSnapshot
         ? pendingSnapshot.docs.map((item) => ({ id: item.id, ...item.data() }))
         : [];
+
+      const newlyCompleted = await completeExpiredFromFeed(nextFeedPosts, finalBoardId);
+      if (newlyCompleted.length > 0) {
+        const completedIds = new Set(newlyCompleted.map((item) => item.id));
+        nextFeedPosts = nextFeedPosts.filter((item) => !completedIds.has(item.id));
+        const completedMap = new Map(nextCompletedPosts.map((item) => [item.id, item]));
+        newlyCompleted.forEach((item) => completedMap.set(item.id, item));
+        nextCompletedPosts = Array.from(completedMap.values());
+      }
+      
       const filterForStudentYear = (items) => {
         if (!isStudentProfile || !profile?.year) return items;
         return items.filter((post) => isVisibleForYear(post, profile.year));
       };
+      
+      // Filter completed posts: only show achievements OR other posts with passed deadlines/events
+      const filterCompletedPosts = (items) => {
+        const now = Date.now();
+        return items.filter((post) => {
+          if (post.type === "achievement") return true;
+          const deadlineTime = getDateValueMs(post.deadlineAt);
+          const eventTime = getDateValueMs(post.eventAt);
+          if (Number.isFinite(deadlineTime) && deadlineTime <= now) return true;
+          if (Number.isFinite(eventTime) && eventTime <= now) return true;
+          return false;
+        });
+      };
+      
       const filteredFeed = filterForStudentYear(nextFeedPosts);
-      const filteredCompleted = filterForStudentYear(nextCompletedPosts);
+      const filteredCompleted = filterForStudentYear(filterCompletedPosts(nextCompletedPosts));
       const filteredPending = filterForStudentYear(nextPendingPosts);
 
       setPosts(filteredFeed);
@@ -1910,19 +2150,22 @@ export default function App() {
       return;
     }
 
-    if (composeFile && !String(composeFile.type || "").startsWith("image/")) {
-      setIsError(true);
-      setStatus("Only image files are allowed.");
-      return;
+    // Validate all files
+    for (const file of composeFiles) {
+      if (!String(file.type || "").startsWith("image/")) {
+        setIsError(true);
+        setStatus("Only image files are allowed.");
+        return;
+      }
+      if (file.size > MAX_UPLOAD_BYTES) {
+        setIsError(true);
+        setStatus(`Image "${file.name}" is too large. Please upload images below 7 MB.`);
+        return;
+      }
     }
 
-    if (composeFile && composeFile.size > MAX_UPLOAD_BYTES) {
-      setIsError(true);
-      setStatus("Image is too large. Please upload an image below 7 MB.");
-      return;
-    }
-
-    const deadlineDate = composeForm.deadline ? new Date(composeForm.deadline) : null;
+    const shouldUsePriority = PRIORITY_TYPES.has(composeForm.type);
+    const deadlineDate = shouldUsePriority && composeForm.deadline ? new Date(composeForm.deadline) : null;
     if (deadlineDate && Number.isNaN(deadlineDate.getTime())) {
       setIsError(true);
       setStatus("Invalid deadline format.");
@@ -1959,19 +2202,25 @@ export default function App() {
     setStatus("Publishing post...");
 
     try {
-      let mediaUrl = "";
-      if (composeFile) {
-        setStatus("Uploading image... 0%");
-        mediaUrl = await uploadImageWithProgress(composeFile, (progress) => {
-          setUploadProgress(progress);
+      const mediaUrls = [];
+      
+      // Upload all images and collect URLs
+      for (let i = 0; i < composeFiles.length; i++) {
+        const file = composeFiles[i];
+        setStatus(`Uploading image ${i + 1} of ${composeFiles.length}... 0%`);
+        const mediaUrl = await uploadImageWithProgress(file, (progress) => {
+          const overallProgress = Math.round(((i + progress / 100) / composeFiles.length) * 100);
+          setUploadProgress(overallProgress);
           if (progress < 100) {
-            setStatus(`Uploading image... ${progress}%`);
+            setStatus(`Uploading image ${i + 1} of ${composeFiles.length}... ${progress}%`);
           }
         }, UPLOAD_IDLE_TIMEOUT_MS);
-        setStatus("Publishing post...");
+        mediaUrls.push(mediaUrl);
       }
+      setStatus("Publishing post...");
 
-      const urgencyScore = computeUrgencyScore(composeForm.priority, deadlineDate);
+      const priorityValue = shouldUsePriority ? composeForm.priority : "medium";
+      const urgencyScore = computeUrgencyScore(priorityValue, deadlineDate);
 
       await withTimeout(Promise.all(
         targetBoardIds.map(async (boardId) => {
@@ -1982,18 +2231,18 @@ export default function App() {
             type: composeForm.type,
             title,
             content: contentWithLink,
-            mediaUrls: mediaUrl ? [mediaUrl] : [],
+            mediaUrls: mediaUrls,
             batchId,
-            priority: composeForm.priority,
-            priorityRank: getPriorityRank(composeForm.priority),
+            priority: priorityValue,
+            priorityRank: getPriorityRank(priorityValue),
             urgencyScore,
             year: targetYear,
             audienceYears: targetYear ? [targetYear] : [],
             searchTokens: tokenizeText(`${title} ${contentWithLink} ${composeForm.type}`),
             deadlineAt: deadlineDate ? Timestamp.fromDate(deadlineDate) : null,
             eventAt: eventDate ? Timestamp.fromDate(eventDate) : null,
-            completedAt: null,
-            lifecycleStatus: "active",
+            completedAt: composeForm.type === "achievement" ? serverTimestamp() : null,
+            lifecycleStatus: composeForm.type === "achievement" ? "completed" : "active",
             visibility: "published",
             approvalStatus: "approved",
             authorUid: authUser.uid,
@@ -2007,6 +2256,7 @@ export default function App() {
           await writeAuditLog("create_post", postRef.id, boardId, {
             targetMode: composeForm.targetMode,
             priority: composeForm.priority,
+            imageCount: mediaUrls.length,
           });
         })
       ), PUBLISH_TIMEOUT_MS, "Publishing timed out");
@@ -2049,10 +2299,94 @@ export default function App() {
     });
   }
 
+  function handleComposeFileSelect(event) {
+    const files = Array.from(event.target.files || []);
+    setComposeFiles((prev) => [...prev, ...files]);
+    // Reset input so same file can be selected again
+    event.target.value = "";
+  }
+
+  function removeComposeFile(index) {
+    setComposeFiles((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function clearComposeFiles() {
+    setComposeFiles([]);
+  }
+
+  async function handleProfilePhotoChange(event) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file || !authUser) return;
+    if (!String(file.type || "").startsWith("image/")) {
+      setIsError(true);
+      setStatus("Only image files are allowed for profile photos.");
+      return;
+    }
+    if (file.size > MAX_UPLOAD_BYTES) {
+      setIsError(true);
+      setStatus("Profile photo is too large. Please upload an image below 7 MB.");
+      return;
+    }
+
+    setProfilePhotoUploading(true);
+    setProfilePhotoProgress(0);
+    setIsError(false);
+    setStatus("Uploading profile photo...");
+    try {
+      const uploadedUrl = await uploadImageWithProgress(file, (progress) => {
+        setProfilePhotoProgress(progress);
+      });
+      await updateDoc(doc(db, "users", authUser.uid), {
+        photoUrl: uploadedUrl,
+        updatedAt: serverTimestamp(),
+      });
+      setUserProfile((prev) => (prev ? { ...prev, photoUrl: uploadedUrl } : prev));
+      setApprovedAuthors((prev) =>
+        prev.map((author) =>
+          author.uid === authUser.uid ? { ...author, photoUrl: uploadedUrl } : author
+        )
+      );
+      setStatus("Profile photo updated.");
+    } catch (error) {
+      setIsError(true);
+      setStatus(toStatusMessage(error, "Unable to upload profile photo."));
+    } finally {
+      setProfilePhotoUploading(false);
+    }
+  }
+
+  async function handleRemoveProfilePhoto() {
+    if (!authUser) return;
+    setProfilePhotoUploading(true);
+    setProfilePhotoProgress(0);
+    setIsError(false);
+    setStatus("Removing profile photo...");
+    try {
+      await updateDoc(doc(db, "users", authUser.uid), {
+        photoUrl: "",
+        updatedAt: serverTimestamp(),
+      });
+      setUserProfile((prev) => (prev ? { ...prev, photoUrl: "" } : prev));
+      setApprovedAuthors((prev) =>
+        prev.map((author) =>
+          author.uid === authUser.uid ? { ...author, photoUrl: "" } : author
+        )
+      );
+      setStatus("Profile photo removed.");
+    } catch (error) {
+      setIsError(true);
+      setStatus(toStatusMessage(error, "Unable to remove profile photo."));
+    } finally {
+      setProfilePhotoUploading(false);
+    }
+  }
+
   async function handleSaveEdit() {
     if (!editPost) return;
     const title = editForm.title.trim();
     const content = editForm.content.trim();
+    const shouldUsePriority = PRIORITY_TYPES.has(editPost.type);
 
     if (!title || !content) {
       setIsError(true);
@@ -2060,7 +2394,7 @@ export default function App() {
       return;
     }
 
-    const deadlineDate = editForm.deadline ? new Date(editForm.deadline) : null;
+    const deadlineDate = shouldUsePriority && editForm.deadline ? new Date(editForm.deadline) : null;
     if (deadlineDate && Number.isNaN(deadlineDate.getTime())) {
       setIsError(true);
       setStatus("Invalid deadline format.");
@@ -2070,17 +2404,22 @@ export default function App() {
     try {
       const groupKey = editPost.groupKey || getPostGroupKey(editPost);
       const groupItems = authoredPostGroups[groupKey] || [editPost];
+      const updatePayload = {
+        title,
+        content,
+        searchTokens: tokenizeText(`${title} ${content} ${editPost.type || ""}`),
+        updatedAt: serverTimestamp(),
+      };
+      if (shouldUsePriority) {
+        updatePayload.priority = editForm.priority;
+        updatePayload.priorityRank = getPriorityRank(editForm.priority);
+        updatePayload.urgencyScore = computeUrgencyScore(editForm.priority, deadlineDate);
+        updatePayload.deadlineAt = deadlineDate ? Timestamp.fromDate(deadlineDate) : null;
+      }
       await Promise.all(
         groupItems.map((item) =>
           updateDoc(doc(db, "posts", item.id), {
-            title,
-            content,
-            priority: editForm.priority,
-            priorityRank: getPriorityRank(editForm.priority),
-            urgencyScore: computeUrgencyScore(editForm.priority, deadlineDate),
-            deadlineAt: deadlineDate ? Timestamp.fromDate(deadlineDate) : null,
-            searchTokens: tokenizeText(`${title} ${content} ${editPost.type || ""}`),
-            updatedAt: serverTimestamp(),
+            ...updatePayload,
           })
         )
       );
@@ -2672,7 +3011,16 @@ export default function App() {
                         closeMobileDrawers();
                       }}
                     >
-                      <span className="avatar small">{getInitials(author.name || author.email)}</span>
+                      <span className="avatar small">
+                        {author.photoUrl ? (
+                          <img
+                            src={getOptimizedImageUrl(author.photoUrl)}
+                            alt={`${author.name || "Author"} profile`}
+                          />
+                        ) : (
+                          getInitials(author.name || author.email)
+                        )}
+                      </span>
                       <div>
                         <p className="author-name">{author.name || author.email}</p>
                         <p className="author-meta">
@@ -2822,7 +3170,13 @@ export default function App() {
                   aria-expanded={profileMenuOpen}
                   title="Profile menu"
                 >
-                  <span className="avatar small">{getInitials(userProfile?.name || email)}</span>
+                  <span className="avatar small">
+                    {profilePhotoUrl ? (
+                      <img src={getOptimizedImageUrl(profilePhotoUrl)} alt="Profile" />
+                    ) : (
+                      getInitials(userProfile?.name || email)
+                    )}
+                  </span>
                   <span className="rail-label">{profileLabel}</span>
                   <span className="rail-menu-dots" aria-hidden="true">
                     <svg viewBox="0 0 24 24" role="presentation">
@@ -2923,7 +3277,13 @@ export default function App() {
               <span className={`profile-chevron ${profileMenuOpen ? "open" : ""}`} aria-hidden="true">
                 v
               </span>
-              <span className="avatar small">{getInitials(userProfile?.name || email)}</span>
+              <span className="avatar small">
+                {profilePhotoUrl ? (
+                  <img src={getOptimizedImageUrl(profilePhotoUrl)} alt="Profile" />
+                ) : (
+                  getInitials(userProfile?.name || email)
+                )}
+              </span>
             </button>
 
             {profileMenuOpen && (
@@ -3191,7 +3551,9 @@ export default function App() {
                           {eventItem.dateType === "deadline" ? "Deadline" : "Event date"}
                         </p>
                       </div>
-                      <span className={`event-chip ${eventItem.priority}`}>{eventItem.priority}</span>
+                      {PRIORITY_TYPES.has(eventItem.type) && (
+                        <span className={`event-chip ${eventItem.priority}`}>{eventItem.priority}</span>
+                      )}
                     </button>
                   ))}
                 </section>
@@ -3339,7 +3701,42 @@ export default function App() {
               <div className="profile-layout">
                 <section className="panel-card profile-card">
                   <div className="profile-head">
-                    <span className="avatar large">{getInitials(userProfile?.name || email)}</span>
+                    <div className="profile-avatar-wrap">
+                      <span className="avatar large profile-avatar">
+                        {profilePhotoUrl ? (
+                          <img src={getOptimizedImageUrl(profilePhotoUrl)} alt="Profile" />
+                        ) : (
+                          getInitials(userProfile?.name || email)
+                        )}
+                      </span>
+                      <div className="photo-action-row">
+                        <label className="photo-action-btn primary">
+                          {profilePhotoUploading
+                            ? `Uploading ${profilePhotoProgress}%`
+                            : profilePhotoUrl
+                              ? "Change photo"
+                              : "Add photo"}
+                          <input
+                            type="file"
+                            accept="image/*"
+                            onChange={handleProfilePhotoChange}
+                            disabled={profilePhotoUploading}
+                          />
+                        </label>
+                        {profilePhotoUrl && !profilePhotoUploading && (
+                          <button
+                            type="button"
+                            className="photo-action-btn danger"
+                            onClick={handleRemoveProfilePhoto}
+                          >
+                            Remove photo
+                          </button>
+                        )}
+                      </div>
+                      {profilePhotoUploading && (
+                        <span className="hint">Please keep this tab open.</span>
+                      )}
+                    </div>
                     <div>
                       <h3>{userProfile?.name || "Campus member"}</h3>
                       <p className="description">{email}</p>
@@ -3381,6 +3778,7 @@ export default function App() {
                           const canDelete =
                             userProfile?.role === "admin" || post.authorUid === authUser?.uid;
                           const mediaUrl = getPostMediaUrl(post);
+                          const isPriorityPost = PRIORITY_TYPES.has(post.type);
                           const authorDepartment = getAuthorDepartmentLabel(
                             post,
                             selectedBoardId,
@@ -3411,9 +3809,11 @@ export default function App() {
                                 </div>
                                 <div className="badge-row">
                                   <span className="post-badge">{post.type}</span>
-                                  <span className={`priority-badge ${post.priority || "medium"}`}>
-                                    {post.priority || "medium"}
-                                  </span>
+                                  {isPriorityPost && (
+                                    <span className={`priority-badge ${post.priority || "medium"}`}>
+                                      {post.priority || "medium"}
+                                    </span>
+                                  )}
                                 </div>
                               </header>
                               {mediaUrl && (
@@ -3451,7 +3851,9 @@ export default function App() {
                               </div>
                               <footer className="post-footer">
                                 <p className="post-time">{formatTimestamp(post.createdAt)}</p>
-                                {post.deadlineAt && <p>Deadline: {formatTimestamp(post.deadlineAt)}</p>}
+                                {isPriorityPost && post.deadlineAt && (
+                                  <p>Deadline: {formatTimestamp(post.deadlineAt)}</p>
+                                )}
                                 {canModerate && readStatsByPost[post.id] ? (
                                   <p>
                                     Views {readStatsByPost[post.id].readCount}/{readStatsByPost[post.id].eligibleCount}
@@ -3495,6 +3897,7 @@ export default function App() {
                   <div className="post-list">
                     {starredPosts.map((post) => {
                       const mediaUrl = getPostMediaUrl(post);
+                      const isPriorityPost = PRIORITY_TYPES.has(post.type);
                       return (
                         <article
                           key={post.id}
@@ -3514,9 +3917,11 @@ export default function App() {
                               <p className="post-meta">{post.boardName || "Board"}</p>
                               <h4>{post.title}</h4>
                             </div>
-                            <span className={`priority-badge ${post.priority || "medium"}`}>
-                              {post.priority || "medium"}
-                            </span>
+                            {isPriorityPost && (
+                              <span className={`priority-badge ${post.priority || "medium"}`}>
+                                {post.priority || "medium"}
+                              </span>
+                            )}
                           </header>
                           {mediaUrl && (
                             <div className="post-media-wrap">
@@ -3574,13 +3979,15 @@ export default function App() {
                   >
                     Feed
                   </button>
-                  <button
-                    type="button"
-                    className={activeTab === FEED_TAB.COMPLETED ? "tab-btn active" : "tab-btn"}
-                    onClick={() => setActiveTab(FEED_TAB.COMPLETED)}
-                  >
-                    Completed
-                  </button>
+                  {showCompletedTab && (
+                    <button
+                      type="button"
+                      className={activeTab === FEED_TAB.COMPLETED ? "tab-btn active" : "tab-btn"}
+                      onClick={() => setActiveTab(FEED_TAB.COMPLETED)}
+                    >
+                      Completed
+                    </button>
+                  )}
                   {canModerate && (
                     <button
                       type="button"
@@ -3592,63 +3999,142 @@ export default function App() {
                   )}
                 </div>
 
-              <div className="filters-panel">
-                <input
-                  type="text"
-                  placeholder="Search posts..."
-                  name="postSearch"
-                  value={searchTerm}
-                  onChange={(event) => setSearchTerm(event.target.value)}
-                />
-                {selectedAuthor && (
-                  <button
-                    type="button"
-                    className="ghost-btn compact-btn"
-                    onClick={clearAuthorFilter}
-                    title="Clear author filter"
-                  >
-                    Showing: {selectedAuthor.name || selectedAuthor.email || "Author"} ✕
-                  </button>
-                )}
-                <select
-                  name="filterType"
-                  value={filterType}
-                  onChange={(event) => setFilterType(event.target.value)}
-                >
-                  <option value="all">All Types</option>
-                    {POST_TYPES.map((type) => (
-                      <option key={type} value={type}>
-                        {type}
-                      </option>
-                    ))}
-                  </select>
-                  <select
-                    name="filterPriority"
-                    value={filterPriority}
-                    onChange={(event) => setFilterPriority(event.target.value)}
-                  >
-                    <option value="all">All Priority</option>
-                    {PRIORITY_OPTIONS.map((priority) => (
-                      <option key={priority} value={priority}>
-                        {priority}
-                      </option>
-                    ))}
-                  </select>
-                  {!(isStudent && userProfile?.year) && (
-                    <select
-                      name="filterYear"
-                      value={filterYear}
-                      onChange={(event) => setFilterYear(event.target.value)}
+                {selectedAuthorMeta && (
+                  <section className="panel-card author-profile-card">
+                    <div
+                      className="author-cover"
+                      style={{ "--author-accent": selectedAuthorMeta.accent }}
                     >
-                      <option value="all">All Years</option>
-                      <option value="1">1st Year</option>
-                      <option value="2">2nd Year</option>
-                      <option value="3">3rd Year</option>
-                      <option value="4">4th Year</option>
-                    </select>
-                  )}
+                      <div className="author-avatar-lg">
+                        {selectedAuthorMeta.photoUrl ? (
+                          <img
+                            src={getOptimizedImageUrl(selectedAuthorMeta.photoUrl)}
+                            alt={`${selectedAuthorMeta.name} profile`}
+                          />
+                        ) : (
+                          getInitials(selectedAuthorMeta.name || selectedAuthorMeta.email)
+                        )}
+                      </div>
+                    </div>
+                    <div className="author-profile-body">
+                      <div className="author-name-row">
+                        <div>
+                          <h3>{selectedAuthorMeta.name}</h3>
+                        </div>
+                        <button
+                          type="button"
+                          className="ghost-btn compact-btn"
+                          onClick={clearAuthorFilter}
+                        >
+                          Back to all posts
+                        </button>
+                      </div>
+                      <div className="author-tags">
+                        <span className="author-tag">{selectedAuthorMeta.role}</span>
+                        <span className="author-tag">{selectedAuthorMeta.department}</span>
+                        <span className="author-tag">Approved Poster</span>
+                      </div>
+                      <div className="author-stat-grid">
+                        <div className="author-stat">
+                          <span className="author-stat-value">{selectedAuthorStats?.total ?? 0}</span>
+                          <span className="author-stat-label">Total Posts</span>
+                        </div>
+                        <div className="author-stat">
+                          <span className="author-stat-value">{selectedAuthorStats?.active ?? 0}</span>
+                          <span className="author-stat-label">Active</span>
+                        </div>
+                        <div className="author-stat">
+                          <span className="author-stat-value">{selectedAuthorStats?.completed ?? 0}</span>
+                          <span className="author-stat-label">Completed</span>
+                        </div>
+                        {canModerate && (
+                          <div className="author-stat">
+                            <span className="author-stat-value">{selectedAuthorStats?.pending ?? 0}</span>
+                            <span className="author-stat-label">Pending</span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </section>
+                )}
+
+                <div className="filters-panel">
+                  <div className="filters-row">
+                    <input
+                      type="text"
+                      placeholder="Search posts..."
+                      name="postSearch"
+                      className="filter-search"
+                      value={searchTerm}
+                      onChange={(event) => setSearchTerm(event.target.value)}
+                    />
+                  </div>
+                  <div className="filter-section">
+                    <p className="filter-section-title">Browse By Type</p>
+                    <div className="type-grid">
+                      {POST_TYPE_TILES.map((tile) => {
+                        const count = typeCounts[tile.id] ?? 0;
+                        const isActive = filterType === tile.id;
+                        return (
+                          <button
+                            key={tile.id}
+                            type="button"
+                            className={`type-card ${isActive ? "active" : ""}`}
+                            style={{ "--type-accent": tile.accent, "--type-tint": tile.tint }}
+                            onClick={() => setFilterType(tile.id)}
+                            aria-pressed={isActive}
+                          >
+                            <div className="type-title-row">
+                              <span className="type-dot" />
+                              <span className="type-title">{tile.label}</span>
+                            </div>
+                            <span className="type-meta">{tile.description}</span>
+                            <span className="type-count">{count} posts</span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                  <div className="filters-row">
+                    {showPriorityFilters && (
+                      <div className="filter-chip-group">
+                        <span className="filter-label">Priority</span>
+                        <div className="filter-chips">
+                          {PRIORITY_FILTERS.map((option) => (
+                            <button
+                              key={option.id}
+                              type="button"
+                              className={`filter-chip ${filterPriority === option.id ? "active" : ""}`}
+                              onClick={() => setFilterPriority(option.id)}
+                              aria-pressed={filterPriority === option.id}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                    {!(isStudent && userProfile?.year) && (
+                      <div className="filter-chip-group">
+                        <span className="filter-label">Year</span>
+                        <div className="filter-chips">
+                          {YEAR_FILTERS.map((option) => (
+                            <button
+                              key={option.id}
+                              type="button"
+                              className={`filter-chip ${filterYear === option.id ? "active" : ""}`}
+                              onClick={() => setFilterYear(option.id)}
+                              aria-pressed={filterYear === option.id}
+                            >
+                              {option.label}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </div>
                 </div>
-                {isAdminUser && activeTab === FEED_TAB.COMPLETED && (
+                {isAdminUser && showCompletedTab && activeTab === FEED_TAB.COMPLETED && (
                   <div className="filters-panel">
                     <button
                       type="button"
@@ -3661,13 +4147,24 @@ export default function App() {
                   </div>
                 )}
 
+                {selectedAuthorMeta && (
+                  <div className="author-posts-header">
+                    <div>
+                      <h3>Posts by {selectedAuthorMeta.name}</h3>
+                      <p className="hint">{activeTabLabel} posts</p>
+                    </div>
+                    <span className="hint">{typeCounts[filterType] ?? 0} posts</span>
+                  </div>
+                )}
+
                 {postsLoading && <p className="hint">Loading posts...</p>}
 
                 {!postsLoading && activeTab === FEED_TAB.FEED && (
-                  <div className="post-list">
-                    {filteredFeedPosts.length === 0 && <p className="hint">No active posts found.</p>}
-                    {filteredFeedPosts.map((post) => {
+                  <div className={selectedAuthorMeta ? "post-stack" : "post-list"}>
+                    {feedPostsToRender.length === 0 && <p className="hint">{feedEmptyLabel}</p>}
+                    {feedPostsToRender.map((post) => {
                       const mediaUrl = getPostMediaUrl(post);
+                      const isPriorityPost = PRIORITY_TYPES.has(post.type);
                       const authorDepartment = getAuthorDepartmentLabel(
                         post,
                         selectedBoardId,
@@ -3697,9 +4194,11 @@ export default function App() {
                             </div>
                             <div className="badge-row">
                               <span className="post-badge">{post.type}</span>
-                              <span className={`priority-badge ${post.priority || "medium"}`}>
-                                {post.priority || "medium"}
-                              </span>
+                              {isPriorityPost && (
+                                <span className={`priority-badge ${post.priority || "medium"}`}>
+                                  {post.priority || "medium"}
+                                </span>
+                              )}
                             </div>
                           </header>
 
@@ -3726,7 +4225,7 @@ export default function App() {
                             >
                               {starredPostIds.has(post.id) ? "Starred" : "Star"}
                             </button>
-                            {isStudent && (
+                            {isStudent && isPriorityPost && (
                               <button
                                 type="button"
                                 className="action-btn"
@@ -3754,7 +4253,9 @@ export default function App() {
 
                           <footer className="post-footer">
                             <p className="post-time">{formatTimestamp(post.createdAt)}</p>
-                            {post.deadlineAt && <p>Deadline: {formatTimestamp(post.deadlineAt)}</p>}
+                            {isPriorityPost && post.deadlineAt && (
+                              <p>Deadline: {formatTimestamp(post.deadlineAt)}</p>
+                            )}
                             {canModerate && readStatsByPost[post.id] && (
                               <p>
                                 Read {readStatsByPost[post.id].readCount}/{readStatsByPost[post.id].eligibleCount} ({
@@ -3769,11 +4270,12 @@ export default function App() {
                   </div>
                 )}
 
-                {!postsLoading && activeTab === FEED_TAB.COMPLETED && (
-                  <div className="post-list">
+                {!postsLoading && showCompletedTab && activeTab === FEED_TAB.COMPLETED && (
+                  <div className={selectedAuthorMeta ? "post-stack" : "post-list"}>
                     {filteredCompletedPosts.length === 0 && <p className="hint">No completed posts yet.</p>}
                     {filteredCompletedPosts.map((post) => {
                       const mediaUrl = getPostMediaUrl(post);
+                      const isPriorityPost = PRIORITY_TYPES.has(post.type);
                       const authorDepartment = getAuthorDepartmentLabel(
                         post,
                         selectedBoardId,
@@ -3803,9 +4305,11 @@ export default function App() {
                             </div>
                             <div className="badge-row">
                               <span className="post-badge">{post.type}</span>
-                              <span className={`priority-badge ${post.priority || "medium"}`}>
-                                {post.priority || "medium"}
-                              </span>
+                              {isPriorityPost && (
+                                <span className={`priority-badge ${post.priority || "medium"}`}>
+                                  {post.priority || "medium"}
+                                </span>
+                              )}
                             </div>
                           </header>
 
@@ -3832,7 +4336,7 @@ export default function App() {
                             >
                               {starredPostIds.has(post.id) ? "Starred" : "Star"}
                             </button>
-                            {isStudent && (
+                            {isStudent && isPriorityPost && (
                               <button
                                 type="button"
                                 className="action-btn"
@@ -3860,7 +4364,9 @@ export default function App() {
 
                           <footer className="post-footer">
                             <p className="post-time">{formatTimestamp(post.createdAt)}</p>
-                            {post.deadlineAt && <p>Deadline: {formatTimestamp(post.deadlineAt)}</p>}
+                            {isPriorityPost && post.deadlineAt && (
+                              <p>Deadline: {formatTimestamp(post.deadlineAt)}</p>
+                            )}
                             {canModerate && readStatsByPost[post.id] && (
                               <p>
                                 Read {readStatsByPost[post.id].readCount}/{readStatsByPost[post.id].eligibleCount} ({
@@ -3876,7 +4382,7 @@ export default function App() {
                 )}
 
                 {!postsLoading && activeTab === FEED_TAB.PENDING && canModerate && (
-                  <div className="post-list">
+                  <div className={selectedAuthorMeta ? "post-stack" : "post-list"}>
                     {filteredPendingPosts.length === 0 && <p className="hint">No pending posts for approval.</p>}
                     {filteredPendingPosts.map((post) => (
                       <article key={post.id} className="post-card pending">
@@ -4003,7 +4509,16 @@ export default function App() {
                       className={`author-item ${selectedAuthorUid === author.uid ? "active" : ""}`}
                       onClick={() => selectAuthor(author)}
                     >
-                      <span className="avatar small">{getInitials(author.name || author.email)}</span>
+                      <span className="avatar small">
+                        {author.photoUrl ? (
+                          <img
+                            src={getOptimizedImageUrl(author.photoUrl)}
+                            alt={`${author.name || "Author"} profile`}
+                          />
+                        ) : (
+                          getInitials(author.name || author.email)
+                        )}
+                      </span>
                       <div>
                         <p className="author-name">{author.name || author.email}</p>
                         <p className="author-meta">
@@ -4066,25 +4581,27 @@ export default function App() {
               value={editForm.content}
               onChange={(event) => setEditForm((prev) => ({ ...prev, content: event.target.value }))}
             />
-            <div className="compose-grid">
-              <select
-                name="editPriority"
-                value={editForm.priority}
-                onChange={(event) => setEditForm((prev) => ({ ...prev, priority: event.target.value }))}
-              >
-                {PRIORITY_OPTIONS.map((priority) => (
-                  <option key={priority} value={priority}>
-                    {priority}
-                  </option>
-                ))}
-              </select>
-              <input
-                type="datetime-local"
-                name="editDeadline"
-                value={editForm.deadline}
-                onChange={(event) => setEditForm((prev) => ({ ...prev, deadline: event.target.value }))}
-              />
-            </div>
+            {editPostHasPriority && (
+              <div className="compose-grid">
+                <select
+                  name="editPriority"
+                  value={editForm.priority}
+                  onChange={(event) => setEditForm((prev) => ({ ...prev, priority: event.target.value }))}
+                >
+                  {PRIORITY_OPTIONS.map((priority) => (
+                    <option key={priority} value={priority}>
+                      {priority}
+                    </option>
+                  ))}
+                </select>
+                <input
+                  type="datetime-local"
+                  name="editDeadline"
+                  value={editForm.deadline}
+                  onChange={(event) => setEditForm((prev) => ({ ...prev, deadline: event.target.value }))}
+                />
+              </div>
+            )}
             <div className="compose-actions">
               <button className="primary-btn" onClick={handleSaveEdit} type="button">
                 Save Changes
@@ -4111,11 +4628,57 @@ export default function App() {
             onClick={(event) => event.stopPropagation()}
           >
             <div className="post-view-media">
-              {activePostMediaUrl ? (
-                <img src={activePostMediaUrl} alt={activePost.title || "Post media"} />
+              {activePost && Array.isArray(activePost.mediaUrls) && activePost.mediaUrls.length > 0 ? (
+                <div className="image-carousel">
+                  <img 
+                    src={getOptimizedImageUrl(activePost.mediaUrls[activePostImageIndex])} 
+                    alt={`${activePost.title || "Post media"} - Image ${activePostImageIndex + 1}`} 
+                  />
+                  {activePost.mediaUrls.length > 1 && (
+                    <>
+                      <button
+                        type="button"
+                        className="carousel-nav prev"
+                        onClick={() => setActivePostImageIndex((prev) => 
+                          prev === 0 ? activePost.mediaUrls.length - 1 : prev - 1
+                        )}
+                        aria-label="Previous image"
+                        title="Previous image"
+                      >
+                        ‹
+                      </button>
+                      <button
+                        type="button"
+                        className="carousel-nav next"
+                        onClick={() => setActivePostImageIndex((prev) => 
+                          prev === activePost.mediaUrls.length - 1 ? 0 : prev + 1
+                        )}
+                        aria-label="Next image"
+                        title="Next image"
+                      >
+                        ›
+                      </button>
+                      <div className="carousel-indicators">
+                        {activePost.mediaUrls.map((_, index) => (
+                          <button
+                            key={index}
+                            type="button"
+                            className={`indicator ${index === activePostImageIndex ? "active" : ""}`}
+                            onClick={() => setActivePostImageIndex(index)}
+                            aria-label={`Go to image ${index + 1}`}
+                            aria-current={index === activePostImageIndex ? "true" : "false"}
+                          />
+                        ))}
+                      </div>
+                      <div className="carousel-counter">
+                        {activePostImageIndex + 1} / {activePost.mediaUrls.length}
+                      </div>
+                    </>
+                  )}
+                </div>
               ) : (
                 <div className="post-view-placeholder">
-                  <span className="post-view-initials">{getInitials(activePost.title || "CC")}</span>
+                  <span className="post-view-initials">{getInitials(activePost?.title || "CC")}</span>
                   <p>No image provided</p>
                 </div>
               )}
@@ -4137,7 +4700,9 @@ export default function App() {
                 <h3>{activePost.title || "Untitled Post"}</h3>
                 <div className="badge-row">
                   <span className="post-badge">{activePostType}</span>
-                  <span className={`priority-badge ${activePostPriority}`}>{activePostPriority}</span>
+                  {activePostHasPriority && (
+                    <span className={`priority-badge ${activePostPriority}`}>{activePostPriority}</span>
+                  )}
                 </div>
                 {renderPostBody(activePost, {
                   contentClassName: "post-view-content",
@@ -4153,7 +4718,7 @@ export default function App() {
                   >
                     {starredPostIds.has(activePost.id) ? "Starred" : "Star"}
                   </button>
-                  {isStudent && (
+                  {isStudent && activePostHasPriority && (
                     <button
                       type="button"
                       className="action-btn"
@@ -4180,7 +4745,7 @@ export default function App() {
                 </div>
                 <div className="post-view-meta">
                   <span>{formatTimestamp(activePost.createdAt)}</span>
-                  {activePost.deadlineAt && (
+                  {activePostHasPriority && activePost.deadlineAt && (
                     <span>Deadline: {formatTimestamp(activePost.deadlineAt)}</span>
                   )}
                   {activePost.eventAt && (
@@ -4222,15 +4787,43 @@ export default function App() {
             />
 
             <label className="file-label">
-              Upload image
+              Upload images (multiple images allowed)
               <input
                 type="file"
-                name="postImage"
+                name="postImages"
                 accept="image/*"
-                onChange={(event) => setComposeFile(event.target.files?.[0] || null)}
+                multiple
+                onChange={handleComposeFileSelect}
               />
             </label>
-            {composeFile && <p className="hint">Selected file: {composeFile.name}</p>}
+            {composeFiles.length > 0 && (
+              <div className="compose-image-preview">
+                <p className="hint">{composeFiles.length} image(s) selected</p>
+                <div className="image-list">
+                  {composeFiles.map((file, index) => (
+                    <div key={`${file.name}-${index}`} className="image-item">
+                      <span>{file.name}</span>
+                      <button
+                        type="button"
+                        className="ghost-btn compact-btn"
+                        onClick={() => removeComposeFile(index)}
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                {composeFiles.length > 0 && (
+                  <button
+                    type="button"
+                    className="ghost-btn compact-btn"
+                    onClick={clearComposeFiles}
+                  >
+                    Clear All Images
+                  </button>
+                )}
+              </div>
+            )}
 
             <div className="compose-grid">
               <select
@@ -4260,15 +4853,15 @@ export default function App() {
                 value={composeForm.type}
                 onChange={(event) => {
                   const nextType = event.target.value;
+                  const shouldUseEventDate =
+                    nextType === "event" || nextType === "hackathon" || nextType === "workshop";
+                  const shouldUsePriority = PRIORITY_TYPES.has(nextType);
                   setComposeForm((prev) => ({
                     ...prev,
                     type: nextType,
-                    eventDate:
-                      nextType === "event" ||
-                      nextType === "hackathon" ||
-                      nextType === "workshop"
-                        ? prev.eventDate
-                        : "",
+                    eventDate: shouldUseEventDate ? prev.eventDate : "",
+                    deadline: shouldUsePriority ? prev.deadline : "",
+                    priority: shouldUsePriority ? prev.priority : "medium",
                   }));
                 }}
               >
@@ -4279,17 +4872,19 @@ export default function App() {
                 ))}
               </select>
 
-              <select
-                name="postPriority"
-                value={composeForm.priority}
-                onChange={(event) => setComposeForm((prev) => ({ ...prev, priority: event.target.value }))}
-              >
-                {PRIORITY_OPTIONS.map((priority) => (
-                  <option key={priority} value={priority}>
-                    {priority}
-                  </option>
-                ))}
-              </select>
+              {PRIORITY_TYPES.has(composeForm.type) && (
+                <select
+                  name="postPriority"
+                  value={composeForm.priority}
+                  onChange={(event) => setComposeForm((prev) => ({ ...prev, priority: event.target.value }))}
+                >
+                  {PRIORITY_OPTIONS.map((priority) => (
+                    <option key={priority} value={priority}>
+                      {priority}
+                    </option>
+                  ))}
+                </select>
+              )}
 
               <select
                 name="postTargetYear"
@@ -4312,15 +4907,17 @@ export default function App() {
               onChange={(event) => setComposeForm((prev) => ({ ...prev, link: event.target.value }))}
             />
 
-            <label className="deadline-label">
-              Deadline (optional)
-              <input
-                type="datetime-local"
-                name="postDeadline"
-                value={composeForm.deadline}
-                onChange={(event) => setComposeForm((prev) => ({ ...prev, deadline: event.target.value }))}
-              />
-            </label>
+            {PRIORITY_TYPES.has(composeForm.type) && (
+              <label className="deadline-label">
+                Deadline (optional)
+                <input
+                  type="datetime-local"
+                  name="postDeadline"
+                  value={composeForm.deadline}
+                  onChange={(event) => setComposeForm((prev) => ({ ...prev, deadline: event.target.value }))}
+                />
+              </label>
+            )}
             {(composeForm.type === "event" ||
               composeForm.type === "hackathon" ||
               composeForm.type === "workshop") && (

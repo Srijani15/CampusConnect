@@ -64,7 +64,7 @@ service cloud.firestore {
     }
 
     function isValidPostType(value) {
-      return value in ["notice", "event", "hackathon", "workshop", "announcement"];
+      return value in ["notice", "event", "hackathon", "workshop", "announcement", "achievement"];
     }
 
     function isValidPriority(value) {
@@ -117,6 +117,10 @@ service cloud.firestore {
 
     function isDeadlinePassed() {
       return resource.data.deadlineAt is timestamp && resource.data.deadlineAt <= request.time;
+    }
+
+    function isEventPassed() {
+      return resource.data.eventAt is timestamp && resource.data.eventAt <= request.time;
     }
 
     match /users/{userId} {
@@ -233,7 +237,7 @@ service cloud.firestore {
         && resource.data.lifecycleStatus == "active"
         && request.resource.data.lifecycleStatus == "completed"
         && isValidLifecycleStatus(request.resource.data.lifecycleStatus)
-        && isDeadlinePassed()
+        && (isDeadlinePassed() || isEventPassed())
       ) || (
         isInstitutionalUser()
         && resource.data.authorUid == request.auth.uid
